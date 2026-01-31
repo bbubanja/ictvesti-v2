@@ -1,0 +1,70 @@
+name: Android CI - Build APK
+
+# Kada se build pokreće
+on:
+  push:
+    branches: [ main, master ]          # Automatski pri push-u na main/master
+  pull_request:
+    branches: [ main, master ]          # Automatski za pull request-ove
+  workflow_dispatch:                     # Ručno pokretanje preko GitHub UI
+
+# Definicija posla
+jobs:
+  build:
+    runs-on: ubuntu-latest               # Koristi najnoviji Ubuntu server
+    
+    steps:
+    # Korak 1: Preuzmi kod iz repozitorijuma
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    # Korak 2: Instaliraj Java 17 (potreban za Gradle)
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle                    # Keširaj Gradle za brže build-ove
+        
+    # Korak 3: Dodaj execute dozvolu gradlew skripti
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+      
+    # Korak 4: Kompajliraj Debug verziju APK-a
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug --stacktrace
+      
+    # Korak 5: Kompajliraj Release verziju (opciono)
+    - name: Build Release APK (unsigned)
+      run: ./gradlew assembleRelease --stacktrace
+      continue-on-error: true            # Ne zaustavljaj ako faila (nema signing key)
+      
+    # Korak 6: Upload Debug APK kao artifact
+    - name: Upload Debug APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug
+        path: app/build/outputs/apk/debug/app-debug.apk
+        
+    # Korak 7: Upload Release APK (ako je uspešno kompajliran)
+    - name: Upload Release APK
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: app-release-unsigned
+        path: app/build/outputs/apk/release/app-release-unsigned.apk
+      continue-on-error: true
+      
+    # Korak 8: Kreiraj GitHub Release sa APK-om (samo za main/master)
+    - name: Create Release
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v1.0.${{ github.run_number }}
+        name: Release v1.0.${{ github.run_number }}
+        files: |
+          app/build/outputs/apk/debug/app-debug.apk
+          app/build/outputs/apk/release/app-release-unsigned.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
